@@ -80,7 +80,6 @@ impl AppConf {
     }
 
     pub fn save(&self, app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-
         let path = Self::get_conf_path(app)?;
 
         if let Some(dir) = path.parent() {

@@ -11,7 +11,6 @@ use std::{
 
 pub static SCRIPT_ASK: &[u8] = include_bytes!("../../scripts/ask.js");
 
-
 /// Struct representing the template with the script data.
 #[derive(Debug)]
 pub struct Template {
