@@ -1,5 +1,8 @@
 name: Build & Release
 
+permissions:
+  contents: read
+
 on:
   push:
     tags:
@@ -13,6 +16,9 @@ on:
 
 jobs:
   build:
+    permissions:
+      actions: write
+      contents: write
     name: Build – ${{ matrix.platform }}
     strategy:
       fail-fast: false
