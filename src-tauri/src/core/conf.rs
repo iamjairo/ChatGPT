@@ -122,3 +122,161 @@ impl AppConf {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_conf_json() -> Value {
+        serde_json::json!({
+            "theme": "system",
+            "stay_on_top": false,
+            "ask_mode": false,
+            "mac_titlebar_hidden": false,
+        })
+    }
+
+    #[test]
+    fn test_app_conf_new_defaults() {
+        let conf = AppConf::new();
+        assert_eq!(conf.theme, "system");
+        assert!(!conf.stay_on_top);
+        assert!(!conf.ask_mode);
+    }
+
+    #[test]
+    fn test_app_conf_amend_theme() {
+        let conf = AppConf {
+            theme: "system".to_string(),
+            stay_on_top: false,
+            ask_mode: false,
+            mac_titlebar_hidden: false,
+        };
+        let updated = conf
+            .amend(serde_json::json!({"theme": "dark"}))
+            .expect("amend should succeed");
+        assert_eq!(updated.theme, "dark");
+        assert!(!updated.stay_on_top);
+        assert!(!updated.ask_mode);
+    }
+
+    #[test]
+    fn test_app_conf_amend_stay_on_top() {
+        let conf = AppConf {
+            theme: "light".to_string(),
+            stay_on_top: false,
+            ask_mode: false,
+            mac_titlebar_hidden: false,
+        };
+        let updated = conf
+            .amend(serde_json::json!({"stay_on_top": true}))
+            .expect("amend should succeed");
+        assert!(updated.stay_on_top);
+        assert_eq!(updated.theme, "light");
+    }
+
+    #[test]
+    fn test_app_conf_amend_ask_mode() {
+        let conf = AppConf {
+            theme: "dark".to_string(),
+            stay_on_top: false,
+            ask_mode: false,
+            mac_titlebar_hidden: false,
+        };
+        let updated = conf
+            .amend(serde_json::json!({"ask_mode": true}))
+            .expect("amend should succeed");
+        assert!(updated.ask_mode);
+        assert_eq!(updated.theme, "dark");
+    }
+
+    #[test]
+    fn test_app_conf_amend_multiple_fields() {
+        let conf = AppConf {
+            theme: "system".to_string(),
+            stay_on_top: false,
+            ask_mode: false,
+            mac_titlebar_hidden: false,
+        };
+        let updated = conf
+            .amend(serde_json::json!({"theme": "light", "stay_on_top": true, "ask_mode": true}))
+            .expect("amend should succeed");
+        assert_eq!(updated.theme, "light");
+        assert!(updated.stay_on_top);
+        assert!(updated.ask_mode);
+    }
+
+    #[test]
+    fn test_app_conf_amend_empty_patch() {
+        let conf = AppConf {
+            theme: "dark".to_string(),
+            stay_on_top: true,
+            ask_mode: true,
+            mac_titlebar_hidden: false,
+        };
+        let updated = conf
+            .amend(serde_json::json!({}))
+            .expect("amend with empty patch should succeed");
+        assert_eq!(updated.theme, "dark");
+        assert!(updated.stay_on_top);
+        assert!(updated.ask_mode);
+    }
+
+    #[test]
+    fn test_app_conf_serialization_roundtrip() {
+        let conf = AppConf {
+            theme: "light".to_string(),
+            stay_on_top: true,
+            ask_mode: false,
+            mac_titlebar_hidden: true,
+        };
+        let json = serde_json::to_string(&conf).expect("serialize should succeed");
+        let restored: AppConf = serde_json::from_str(&json).expect("deserialize should succeed");
+        assert_eq!(restored.theme, conf.theme);
+        assert_eq!(restored.stay_on_top, conf.stay_on_top);
+        assert_eq!(restored.ask_mode, conf.ask_mode);
+        assert_eq!(restored.mac_titlebar_hidden, conf.mac_titlebar_hidden);
+    }
+
+    #[test]
+    fn test_app_conf_all_theme_values() {
+        for theme in &["system", "light", "dark"] {
+            let conf = AppConf {
+                theme: "system".to_string(),
+                stay_on_top: false,
+                ask_mode: false,
+                mac_titlebar_hidden: false,
+            };
+            let updated = conf
+                .amend(serde_json::json!({"theme": theme}))
+                .expect("amend theme should succeed");
+            assert_eq!(&updated.theme, theme);
+        }
+    }
+
+    #[test]
+    fn test_app_conf_amend_does_not_mutate_original() {
+        let original_theme = "system".to_string();
+        let conf = AppConf {
+            theme: original_theme.clone(),
+            stay_on_top: false,
+            ask_mode: false,
+            mac_titlebar_hidden: false,
+        };
+        // amend consumes self, so we verify the updated value is independent
+        let updated = conf
+            .amend(serde_json::json!({"theme": "dark"}))
+            .expect("amend should succeed");
+        assert_eq!(updated.theme, "dark");
+        assert_ne!(updated.theme, original_theme);
+    }
+
+    #[test]
+    fn test_app_conf_default_json_roundtrip() {
+        let json = default_conf_json();
+        let conf: AppConf = serde_json::from_value(json).expect("should parse default conf");
+        assert_eq!(conf.theme, "system");
+        assert!(!conf.stay_on_top);
+        assert!(!conf.ask_mode);
+    }
+}
