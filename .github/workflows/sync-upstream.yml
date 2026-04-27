@@ -1,0 +1,65 @@
+name: Sync with Upstream
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Sync fork main with upstream lencx/ChatGPT
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/lencx/ChatGPT.git || true
+
+      - name: Fetch upstream
+        run: git fetch upstream main --no-tags
+
+      - name: Merge upstream changes
+        id: merge
+        run: |
+          # Check if there are new commits from upstream
+          BEHIND=$(git rev-list HEAD..upstream/main --count)
+          echo "commits_behind=$BEHIND" >> "$GITHUB_OUTPUT"
+
+          if [ "$BEHIND" -gt 0 ]; then
+            echo "Merging $BEHIND commit(s) from upstream..."
+            git merge upstream/main \
+              --no-edit \
+              -m "chore: sync with upstream lencx/ChatGPT" \
+              --allow-unrelated-histories \
+              --strategy-option=ours \
+              || (echo "Merge conflict detected – manual resolution required" && exit 1)
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Already up-to-date with upstream."
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push changes
+        if: steps.merge.outputs.merged == 'true'
+        run: git push origin main
+
+      - name: Create summary
+        run: |
+          if [ "${{ steps.merge.outputs.merged }}" == "true" ]; then
+            echo "### ✅ Synced ${{ steps.merge.outputs.commits_behind }} commit(s) from upstream" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✓ Already up-to-date with upstream" >> "$GITHUB_STEP_SUMMARY"
+          fi

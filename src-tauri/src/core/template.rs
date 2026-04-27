@@ -11,6 +11,7 @@ use std::{
 
 pub static SCRIPT_ASK: &[u8] = include_bytes!("../../scripts/ask.js");
 
+
 /// Struct representing the template with the script data.
 #[derive(Debug)]
 pub struct Template {
@@ -163,5 +164,204 @@ fn update_or_create_file<P: AsRef<Path>>(filename: P, new_data: &[u8]) -> Result
             write_file_contents(filename, new_data)?;
             Ok(true)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    // Helper: add tempfile as dev-dependency by using std::env::temp_dir instead
+    fn temp_dir_path() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "chatgpt_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn script_with_version(name: &str, version: &str, url: &str) -> Vec<u8> {
+        format!(
+            "/**\n * @name {}\n * @version {}\n * @url {}\n */\nwindow.X = 1;\n",
+            name, version, url
+        )
+        .into_bytes()
+    }
+
+    // ── read_version_info ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_read_version_info_all_fields() {
+        let data = script_with_version("ask.js", "1.2.3", "https://example.com");
+        let info = read_version_info(&data).expect("should parse version info");
+        assert_eq!(info["name"], "ask.js");
+        assert_eq!(info["version"], "1.2.3");
+        assert_eq!(info["url"], "https://example.com");
+    }
+
+    #[test]
+    fn test_read_version_info_missing_fields_returns_empty_strings() {
+        let data = b"window.X = 1;";
+        let info = read_version_info(data).expect("should return empty strings for missing fields");
+        assert_eq!(info["name"], "");
+        assert_eq!(info["version"], "");
+        assert_eq!(info["url"], "");
+    }
+
+    #[test]
+    fn test_read_version_info_partial_fields() {
+        let data = b"/**\n * @name myScript\n */\nwindow.X = 1;\n";
+        let info = read_version_info(data).expect("should parse partial info");
+        assert_eq!(info["name"], "myScript");
+        assert_eq!(info["version"], "");
+    }
+
+    #[test]
+    fn test_read_version_info_whitespace_trimmed() {
+        let data = b"/**\n * @name   spaced  \n * @version  2.0.0  \n */\n";
+        let info = read_version_info(data).expect("should trim whitespace");
+        assert_eq!(info["name"], "spaced");
+        assert_eq!(info["version"], "2.0.0");
+    }
+
+    // ── read_file_contents / write_file_contents ───────────────────────────────
+
+    #[test]
+    fn test_write_and_read_file_roundtrip() {
+        let dir = temp_dir_path();
+        let path = dir.join("test.txt");
+        let data = b"hello world";
+
+        write_file_contents(&path, data).expect("write should succeed");
+        let read = read_file_contents(&path).expect("read should succeed");
+        assert_eq!(read, data);
+
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn test_read_file_contents_missing_file_returns_error() {
+        let path = std::path::Path::new("/nonexistent/path/file.txt");
+        assert!(read_file_contents(path).is_err());
+    }
+
+    // ── create_dir ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_create_dir_creates_nested_directories() {
+        let base = temp_dir_path();
+        let nested = base.join("a").join("b").join("c").join("file.txt");
+        create_dir(&nested).expect("create_dir should succeed for nested path");
+        assert!(nested.parent().unwrap().exists());
+        fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn test_create_dir_already_exists_is_ok() {
+        let dir = temp_dir_path();
+        let file = dir.join("existing.txt");
+        // Parent already exists; should be fine
+        create_dir(&file).expect("create_dir should succeed when parent already exists");
+        fs::remove_dir_all(dir).ok();
+    }
+
+    // ── update_or_create_file ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_update_or_create_file_creates_when_missing() {
+        let dir = temp_dir_path();
+        let path = dir.join("new.js");
+        let data = script_with_version("new.js", "1.0.0", "https://example.com");
+
+        let updated = update_or_create_file(&path, &data).expect("should create file");
+        assert!(updated, "should report file as created");
+        assert!(path.exists());
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn test_update_or_create_file_upgrades_older_version() {
+        let dir = temp_dir_path();
+        let path = dir.join("script.js");
+
+        let old = script_with_version("script.js", "0.9.0", "https://example.com");
+        let new = script_with_version("script.js", "1.0.0", "https://example.com");
+
+        write_file_contents(&path, &old).unwrap();
+        let updated = update_or_create_file(&path, &new).expect("should update");
+        assert!(updated, "should report file as updated to newer version");
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("1.0.0"));
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn test_update_or_create_file_skips_same_version() {
+        let dir = temp_dir_path();
+        let path = dir.join("script.js");
+        let data = script_with_version("script.js", "1.0.0", "https://example.com");
+
+        write_file_contents(&path, &data).unwrap();
+        let updated = update_or_create_file(&path, &data).expect("should not update");
+        assert!(!updated, "same version should not trigger update");
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn test_update_or_create_file_skips_older_incoming_version() {
+        let dir = temp_dir_path();
+        let path = dir.join("script.js");
+
+        let current = script_with_version("script.js", "2.0.0", "https://example.com");
+        let older = script_with_version("script.js", "1.0.0", "https://example.com");
+
+        write_file_contents(&path, &current).unwrap();
+        let updated = update_or_create_file(&path, &older).expect("should not downgrade");
+        assert!(!updated, "older version should not replace newer file");
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn test_update_or_create_file_overwrites_when_no_version_in_existing() {
+        let dir = temp_dir_path();
+        let path = dir.join("script.js");
+
+        // existing file has no version tag
+        write_file_contents(&path, b"window.X = 1;").unwrap();
+        let new = script_with_version("script.js", "1.0.0", "https://example.com");
+
+        let updated = update_or_create_file(&path, &new).expect("should overwrite");
+        assert!(updated, "missing version in existing file should trigger overwrite");
+        fs::remove_dir_all(dir).ok();
+    }
+
+    // ── Template::default ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_template_default_contains_ask_script() {
+        let t = Template::default();
+        assert!(
+            !t.ask.is_empty(),
+            "default template should embed the ask.js bytes"
+        );
+        // Verify it starts with the JS comment header
+        let content = String::from_utf8_lossy(&t.ask);
+        assert!(content.contains("ChatAsk"), "should contain ChatAsk class");
+    }
+
+    // ── Template::new ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_template_new_creates_ask_js() {
+        let dir = temp_dir_path();
+        Template::new(&dir);
+        assert!(dir.join("ask.js").exists(), "Template::new should create ask.js");
+        fs::remove_dir_all(dir).ok();
     }
 }
