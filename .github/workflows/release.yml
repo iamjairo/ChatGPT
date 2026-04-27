@@ -17,6 +17,7 @@ on:
 jobs:
   build:
     permissions:
+      actions: write
       contents: write
     name: Build – ${{ matrix.platform }}
     strategy:
